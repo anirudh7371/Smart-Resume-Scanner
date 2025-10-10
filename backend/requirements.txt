@@ -3,9 +3,11 @@ uvicorn
 pydantic[dotenv]
 pymongo
 sentence-transformers
-gemini
 langchain
 python-dotenv
 pdfplumber 
 PyPDF2 
 python-multipart
+spacy
+python-docx
+pytesseract
