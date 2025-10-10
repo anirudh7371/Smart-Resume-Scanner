@@ -1,0 +1,143 @@
+# Root .gitignore for Smart-Resume-Scanner
+# - Frontend: Next.js (TypeScript)
+# - Backend: Python
+
+### macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two carriage returns
+Icon
+
+### Node / Next.js
+node_modules/
+.next/
+.turbo/
+out/
+dist/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js build output (when using next export)
+out/
+
+# Vercel / deployment
+.vercel/
+.vercel/project.json
+
+# Local env files - keep secrets out of git
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+### TypeScript
+*.tsbuildinfo
+
+### Python
+# Virtual environments
+venv/
+ENV/
+.venv/
+env/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+share/python-wheels/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# Pyenv
+.python-version
+
+# Mypy
+.mypy_cache/
+dmypy.json
+dmypy.sock
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+### Editor/IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+### Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+### Docker
+# Ignore local docker-compose override files which may contain creds
+docker-compose.override.yml
+docker-compose.*.yml
+
+### System Files
+Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
+
+### Optional: JetBrains
+*.iml
+.ipr
+.iws
+
+### Optional: Local environment files for editors / tooling
+.envrc
+.nvmrc
+
+### GitHub Actions cache
+.github/.cache/
+
+# End of .gitignore
+
