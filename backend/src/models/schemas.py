@@ -3,6 +3,8 @@ from typing import List, Optional, Dict, Any
 
 class EducationItem(BaseModel):
     text: str
+    start: Optional[str] = None
+    end: Optional[str] = None
     confidence: float = 0.0
 
 class ExperienceItem(BaseModel):
@@ -13,14 +15,16 @@ class ExperienceItem(BaseModel):
 
 class ResumeExtract(BaseModel):
     candidate_name: Optional[str] = Field(None, description="Detected candidate name")
-    candidate_name_confidence: float = 0.0
     emails: List[str] = []
     phones: List[str] = []
     skills: List[str] = []
-    skills_confidences: Dict[str, float] = {}
-    education: List[EducationItem] = []
-    experience: List[ExperienceItem] = []
     certifications: List[str] = []
-    certifications_confidences: Dict[str, float] = {}
+    education: List[str] = []
+    experience: List[str] = []
+    achievements: List[str] = []
+    projects: List[str] = []
+    publications: List[str] = []
+    languages: List[str] = []
+    interests: List[str] = []
     raw_text: str
-    parse_warnings: List[str] = []
+    sections: Dict[str, str] = Field({}, description="Dictionary of detected sections and their content")

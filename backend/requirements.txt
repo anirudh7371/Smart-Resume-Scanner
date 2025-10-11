@@ -5,9 +5,9 @@ pymongo
 sentence-transformers
 langchain
 python-dotenv
-pdfplumber 
-PyPDF2 
 python-multipart
 spacy
 python-docx
-pytesseract
+google-generativeai
+pdfminer.six
+loguru

@@ -1,11 +1,10 @@
 import json
-from backend.services.resume_parser import ResumeParser  # correct import for module execution
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# -------------------- Initialize parser -------------------- #
+from .resume_parser import ResumeParser
 parser = ResumeParser()
-
-# -------------------- Sample test resume -------------------- #
-# You can replace this with actual file reading
 sample_resume_text = """
 Anirudh
 Yamunanagar, India· anirudh7371@gmail.com· +918295250473· Indian Citizen
@@ -60,8 +59,6 @@ through projects and model building
 Open Source Contributor: Enhanced pgmpy library with BIC-based structure learning for probabilistic models.
 """
 
-# -------------------- Parse the resume -------------------- #
 parsed_resume = parser.parse_text(sample_resume_text)
+print(parsed_resume.model_dump_json(indent=4))
 
-# -------------------- Print structured output -------------------- #
-print(json.dumps(parsed_resume.dict(), indent=4))
