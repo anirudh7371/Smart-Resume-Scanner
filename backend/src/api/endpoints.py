@@ -1,50 +1,81 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from typing import List, Optional
-from src.services.resume_parser import ResumeParser
-from src.services.match_engine import MatchEngine
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
+from typing import Optional
+import sys
+import os
+from loguru import logger
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
+from services.resume_parser import ResumeParser
+from services.match_engine import MatchEngine
 from src.models.schemas import JobDescription, ResumeExtract, MatchOutput
 
 router = APIRouter()
-parser = ResumeParser()
-engine = MatchEngine()
+try:
+    resume_parser = ResumeParser()
+    match_engine = MatchEngine()
+    logger.info("Successfully initialized ResumeParser and MatchEngine services.")
+except Exception as e:
+    logger.error(f"Fatal error during service initialization: {e}")
+    resume_parser = None
+    match_engine = None
 
-@router.post("/upload_resume", response_model=ResumeExtract)
-async def upload_resume(file: UploadFile = File(...)):
+@router.on_event("startup")
+async def startup_event():
+    if not resume_parser or not match_engine:
+        logger.warning("Application is starting in a DEGRADED state. One or more services failed to initialize.")
+
+@router.post("/parse", response_model=ResumeExtract, tags=["Resume Parsing"])
+async def parse_resume(file: UploadFile = File(..., description="The resume file to parse (PDF, DOCX, or TXT).")):
     """
-    Accept a PDF or text resume, parse it, store (on storage layer), and return structured extract.
+    Upload a resume file to parse it into a structured JSON format.
     """
+    if not resume_parser:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The resume parsing service is not available due to an initialization error."
+        )
+        
+    logger.info(f"Received file for parsing: {file.filename}")
     content = await file.read()
     try:
-        extract = parser.parse_bytes(content, filename=file.filename)
-        # TODO: store extract via storage service and return id
+        extract = resume_parser.parse_bytes(content, filename=file.filename)
+        logger.success(f"Successfully parsed resume for candidate: {extract.candidate_name}")
         return extract
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Error parsing resume {file.filename}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to parse the resume file. Please ensure it is a valid PDF, DOCX, or TXT file. Error: {e}"
+        )
 
-@router.post("/analyze_match", response_model=MatchOutput)
-async def analyze_match(resume_text: Optional[str] = Form(None),
-                        resume_id: Optional[str] = Form(None),
-                        job_title: str = Form(...),
-                        job_description: str = Form(...)):
+@router.post("/match", response_model=MatchOutput, tags=["Resume Matching"])
+async def analyze_match(
+    resume_text: str = Form(..., description="The full raw text of the resume to be analyzed."),
+    job_title: str = Form(..., description="The title of the job position."),
+    job_description: str = Form(..., description="The full description of the job."),
+    required_skills: Optional[str] = Form(None, description="A comma-separated list of key skills for the job.")
+):
     """
-    Accept either resume_text or resume_id (already stored), compute semantic matching and return JSON.
+    Analyzes the match between a resume's text and a job description using AI.
     """
-    if resume_text is None and resume_id is None:
-        raise HTTPException(status_code=400, detail="Provide resume_text or resume_id")
-    # If resume_id -> fetch from storage (TODO)
-    if resume_text:
-        extract = parser.parse_text(resume_text)
-    else:
-        # TODO: implement storage fetch
-        extract = parser.fetch_by_id(resume_id)
-    job = JobDescription(title=job_title, description=job_description)
-    result = engine.score_candidate(extract, job)
-    return result
+    if not match_engine:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The matching service is not available due to an initialization error."
+        )
 
-@router.get("/get_shortlist")
-def get_shortlist(job_id: str, top_k: int = 10):
-    """
-    Return top-k candidates for a stored job (TODO: implement storage retrieval).
-    """
-    # placeholder
-    return {"job_id": job_id, "top_k": top_k, "candidates": []}
+    logger.info(f"Analyzing match for job title: {job_title}")
+    try:
+        resume_extract = resume_parser.parse_text(resume_text)
+        skills_list = [skill.strip() for skill in required_skills.split(',')] if required_skills else []
+        job = JobDescription(title=job_title, description=job_description, required_skills=skills_list)
+        result = await match_engine.score_candidate_against_job(resume_extract, job)
+        logger.success(f"Match analysis complete for '{resume_extract.candidate_name}'. Score: {result.match_score}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error during match analysis for job '{job_title}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during the match analysis. Details: {e}"
+        )
