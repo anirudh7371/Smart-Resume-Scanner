@@ -28,3 +28,16 @@ class ResumeExtract(BaseModel):
     interests: List[str] = []
     raw_text: str
     sections: Dict[str, str] = Field({}, description="Dictionary of detected sections and their content")
+
+class JobDescription(BaseModel):
+    title: str
+    description: str
+    required_skills: List[str] = []
+
+class MatchOutput(BaseModel):
+    candidate_name: str
+    match_score: float
+    strengths: List[str]
+    gaps: List[str]
+    justification: str
+    details: Dict[str, Any]

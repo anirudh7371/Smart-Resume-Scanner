@@ -11,3 +11,4 @@ python-docx
 google-generativeai
 pdfminer.six
 loguru
+pydantic-settings

@@ -3,10 +3,9 @@ from typing import Optional
 import sys
 import os
 from loguru import logger
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-
-from services.resume_parser import ResumeParser
-from services.match_engine import MatchEngine
+from src.services.resume_parser import ResumeParser
+from src.services.match_engine import MatchEngine
+from src.services.storage import storage_adapter
 from src.models.schemas import JobDescription, ResumeExtract, MatchOutput
 
 router = APIRouter()
@@ -34,12 +33,14 @@ async def parse_resume(file: UploadFile = File(..., description="The resume file
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The resume parsing service is not available due to an initialization error."
         )
-        
+
     logger.info(f"Received file for parsing: {file.filename}")
     content = await file.read()
     try:
         extract = resume_parser.parse_bytes(content, filename=file.filename)
-        logger.success(f"Successfully parsed resume for candidate: {extract.candidate_name}")
+        # Save the parsed resume to the database
+        resume_id = storage_adapter.save_resume(extract.model_dump())
+        logger.success(f"Successfully parsed and saved resume for candidate: {extract.candidate_name} with ID: {resume_id}")
         return extract
     except Exception as e:
         logger.error(f"Error parsing resume {file.filename}: {e}")
@@ -71,7 +72,6 @@ async def analyze_match(
         job = JobDescription(title=job_title, description=job_description, required_skills=skills_list)
         result = await match_engine.score_candidate_against_job(resume_extract, job)
         logger.success(f"Match analysis complete for '{resume_extract.candidate_name}'. Score: {result.match_score}")
-        
         return result
     except Exception as e:
         logger.error(f"Error during match analysis for job '{job_title}': {e}")

@@ -6,6 +6,10 @@ import json
 import re
 from loguru import logger
 import google.generativeai as genai
+from src.config import settings
+from src.models.schemas import ResumeExtract, JobDescription, MatchOutput
+from src.services.bias_mitigator import BiasMitigator
+
 
 class MatchEngine:
     def __init__(self):
@@ -54,7 +58,7 @@ class MatchEngine:
         )
         base_score = float(np.clip((similarity + 1) * 5, 0, 10))
 
-        # Prompt LLM for structured evaluation 
+        # Prompt LLM for structured evaluation
         prompt = self._build_reasoning_prompt(resume, job, base_score)
         try:
             response = await self.generation_model.generate_content_async(prompt)
@@ -64,13 +68,13 @@ class MatchEngine:
             logger.warning(f"Failed to parse LLM JSON: {e}")
             parsed = {}
 
-        # Extract and refine results 
+        # Extract and refine results
         strengths = parsed.get("strengths", resume.skills)
         gaps = parsed.get("gaps", list(set(job.required_skills) - set(resume.skills)))
         justification = parsed.get("justification", f"Heuristic score: {base_score:.2f}")
         llm_score = parsed.get("match_score", base_score)
 
-        # Bias mitigation 
+        # Bias mitigation
         mitigated = self.bias_mitigator.apply_checks(llm_score, resume, job)
         final_score = mitigated.get("score", llm_score)
 
@@ -91,7 +95,7 @@ class MatchEngine:
         """
 
         return f"""
-            You are an expert technical recruiter. Analyze the candidate’s resume 
+            You are an expert technical recruiter. Analyze the candidate’s resume
             against the given job description and provide a JSON response as follows:
 
             JSON Output:
