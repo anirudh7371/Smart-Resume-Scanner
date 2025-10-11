@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "mongodb://localhost:27017/"
     LLM_PROVIDER: str = "gemini"
     GEMINI_EMBEDDING_MODEL: str = "models/embedding-001"
-    GEMINI_GENERATION_MODEL: str = "gemini-1.5-flash"
+    GEMINI_GENERATION_MODEL: str = "models/gemini-1.5-flash"
     GEMINI_API_KEY: str
     EMBEDDING_DIMENSION: int = 768
 

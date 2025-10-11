@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
-from typing import Optional
+from typing import Optional, List
 import sys
 import os
 from loguru import logger
@@ -79,3 +79,11 @@ async def analyze_match(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred during the match analysis. Details: {e}"
         )
+
+@router.get("/resumes", response_model=List[ResumeExtract], tags=["Resume Data"])
+async def get_all_resumes(limit: int = 20):
+    """
+    Retrieve all parsed resumes from the database.
+    """
+    resumes = storage_adapter.get_all_resumes(limit=limit)
+    return [ResumeExtract(**resume) for resume in resumes]
