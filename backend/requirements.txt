@@ -12,3 +12,5 @@ google-generativeai
 pdfminer.six
 loguru
 pydantic-settings
+grpcio==1.67.1
+ollama

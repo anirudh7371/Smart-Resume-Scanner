@@ -10,14 +10,22 @@ import numpy as np
 import json
 import requests
 from loguru import logger
+import os
+import importlib.util
 
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.py")
+spec = importlib.util.spec_from_file_location("config", CONFIG_PATH)
+config = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(config)
+
+GEMINI_EMBEDDING_MODEL = getattr(config, "GEMINI_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 class ResumeParser:
     def __init__(
         self,
         skill_source: Optional[str] = None,
         cert_source: Optional[str] = None,
         nlp_model: str = "en_core_web_sm",
-        embedding_model: str = "all-MiniLM-L6-v2"
+        embedding_model: str = GEMINI_EMBEDDING_MODEL
     ):
         try:
             self.nlp = spacy.load(nlp_model)

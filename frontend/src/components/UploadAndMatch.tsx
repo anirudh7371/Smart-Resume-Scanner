@@ -1,196 +1,338 @@
 "use client";
+import { useState, ChangeEvent } from 'react';
+import { Upload, FileText, Briefcase, Award, TrendingUp, X } from 'lucide-react';
 
-import { useState } from "react";
-import axios from "axios";
-
-interface MatchResult {
+interface Candidate {
   candidate_name: string;
+  filename: string;
   match_score: number;
   justification: string;
   strengths: string[];
   gaps: string[];
 }
 
-interface ParseResponse {
-  raw_text: string;
+interface MatchResults {
+  top_candidates: Candidate[];
 }
 
-const UploadAndMatch = () => {
-  const [file, setFile] = useState<File | null>(null);
-  const [jobTitle, setJobTitle] = useState("");
-  const [jobDescription, setJobDescription] = useState("");
-  const [requiredSkills, setRequiredSkills] = useState("");
-  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+export default function ResumeMatcherUI() {
+  const [jobDescFile, setJobDescFile] = useState<File | null>(null);
+  const [jobDescText, setJobDescText] = useState<string>('');
+  const [resumeFiles, setResumeFiles] = useState<File[]>([]);
+  const [topK, setTopK] = useState<number>(5);
+  const [results, setResults] = useState<MatchResults | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFile(e.target.files[0]);
+  const handleJobDescFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setJobDescFile(file);
+      setJobDescText('');
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleResumeFilesChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setResumeFiles(files);
+  };
 
-    if (!file || !jobTitle || !jobDescription) {
-      setError("Please fill in all fields and select a resume file.");
+  const removeResume = (index: number) => {
+    setResumeFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    if ((!jobDescFile && !jobDescText.trim()) || resumeFiles.length === 0) {
+      setError('Please provide a job description and at least one resume');
       return;
     }
 
     setIsLoading(true);
-    setError("");
-    setMatchResult(null);
+    setError('');
+    setResults(null);
 
     try {
-      // Step 1: Parse resume
       const formData = new FormData();
-      formData.append("file", file);
 
-      const parseResponse = await axios.post<ParseResponse>(
-        "http://localhost:8000/api/v1/parse",
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        }
-      );
+      if (jobDescFile) {
+        formData.append('job_description_file', jobDescFile);
+      } else {
+        formData.append('job_description_text', jobDescText);
+      }
 
-      const resumeText = parseResponse.data.raw_text;
+      resumeFiles.forEach((file) => {
+        formData.append('resume_files', file);
+      });
 
-      // Step 2: Match against job description
-      const matchFormData = new FormData();
-      matchFormData.append("resume_text", resumeText);
-      matchFormData.append("job_title", jobTitle);
-      matchFormData.append("job_description", jobDescription);
-      matchFormData.append("required_skills", requiredSkills);
+      formData.append('top_k', topK.toString());
 
-      const matchResponse = await axios.post<MatchResult>(
-        "http://localhost:8000/api/v1/match",
-        matchFormData
-      );
+      const response = await fetch('http://localhost:8000/api/v1/match-multiple', {
+        method: 'POST',
+        body: formData,
+      });
 
-      setMatchResult(matchResponse.data);
-    } catch (err) {
-      console.error("Error during analysis:", err);
-      setError("An error occurred while analyzing. Please try again.");
+      if (!response.ok) throw new Error('Failed to analyze resumes');
+
+      const data: MatchResults = await response.json();
+      setResults(data);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred during analysis');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-      {/* ---------- LEFT SIDE: INPUT FORM ---------- */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-2xl font-semibold mb-4">Job & Resume Details</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label htmlFor="jobTitle" className="block text-gray-700 font-medium mb-2">
-              Job Title
-            </label>
-            <input
-              type="text"
-              id="jobTitle"
-              value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
-              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-indigo-500"
-            />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* HEADER */}
+      <div className="bg-white/80 backdrop-blur-sm shadow-sm sticky top-0 z-10 border-b border-indigo-100">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex items-center gap-3">
+            <Award className="w-8 h-8 text-indigo-600" />
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                Smart Resume Matcher
+              </h1>
+              <p className="text-gray-600 text-sm">AI-Powered Candidate Screening</p>
+            </div>
           </div>
-
-          <div className="mb-4">
-            <label htmlFor="jobDescription" className="block text-gray-700 font-medium mb-2">
-              Job Description
-            </label>
-            <textarea
-              id="jobDescription"
-              value={jobDescription}
-              onChange={(e) => setJobDescription(e.target.value)}
-              rows={6}
-              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          <div className="mb-4">
-            <label htmlFor="requiredSkills" className="block text-gray-700 font-medium mb-2">
-              Required Skills (comma-separated)
-            </label>
-            <input
-              type="text"
-              id="requiredSkills"
-              value={requiredSkills}
-              onChange={(e) => setRequiredSkills(e.target.value)}
-              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-
-          <div className="mb-4">
-            <label htmlFor="resume" className="block text-gray-700 font-medium mb-2">
-              Upload Resume
-            </label>
-            <input
-              type="file"
-              id="resume"
-              accept=".pdf,.doc,.docx,.txt"
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-500 
-                         file:mr-4 file:py-2 file:px-4 
-                         file:rounded-full file:border-0 
-                         file:text-sm file:font-semibold 
-                         file:bg-indigo-50 file:text-indigo-700 
-                         hover:file:bg-indigo-100"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md 
-                       hover:bg-indigo-700 disabled:bg-indigo-300 transition-colors"
-          >
-            {isLoading ? "Analyzing..." : "Find Best Match"}
-          </button>
-        </form>
-
-        {error && <p className="text-red-500 mt-4">{error}</p>}
+        </div>
       </div>
 
-      {/* ---------- RIGHT SIDE: RESULTS ---------- */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-2xl font-semibold mb-4">Match Result</h2>
-        {isLoading && <p>Analyzing resume and job description...</p>}
+      {/* MAIN CONTENT */}
+      <div className="max-w-7xl mx-auto px-6 py-10">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* LEFT PANEL */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-lg p-8 border border-indigo-100">
+              <div className="flex items-center gap-2 mb-6">
+                <Briefcase className="w-6 h-6 text-indigo-600" />
+                <h2 className="text-2xl font-semibold text-gray-800">Job Description</h2>
+              </div>
 
-        {matchResult && (
-          <div>
-            <h3 className="text-xl font-semibold mb-2">
-              Candidate: {matchResult.candidate_name}
-            </h3>
-            <p className="text-lg font-medium text-indigo-600">
-              Match Score: {matchResult.match_score}/10
-            </p>
-            <p className="mt-2 text-gray-700">{matchResult.justification}</p>
+              {/* Upload Job Description */}
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Upload Job Description (PDF/DOCX) or Paste Below
+                  </label>
 
-            <div className="mt-4">
-              <h4 className="font-semibold">Strengths:</h4>
-              <ul className="list-disc list-inside text-gray-600">
-                {matchResult.strengths?.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </div>
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      onChange={handleJobDescFileChange}
+                      className="hidden"
+                      id="job-file-input"
+                    />
+                    <label
+                      htmlFor="job-file-input"
+                      className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-indigo-300 rounded-lg cursor-pointer hover:border-indigo-500 transition-colors bg-indigo-50/50"
+                    >
+                      <Upload className="w-5 h-5 text-indigo-600" />
+                      <span className="text-sm text-gray-700">
+                        {jobDescFile ? jobDescFile.name : 'Choose file'}
+                      </span>
+                    </label>
+                  </div>
 
-            <div className="mt-4">
-              <h4 className="font-semibold">Gaps:</h4>
-              <ul className="list-disc list-inside text-gray-600">
-                {matchResult.gaps?.map((g, i) => (
-                  <li key={i}>{g}</li>
-                ))}
-              </ul>
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="px-2 bg-white text-gray-500">OR</span>
+                    </div>
+                  </div>
+
+                  <textarea
+                    value={jobDescText}
+                    onChange={(e) => {
+                      setJobDescText(e.target.value);
+                      if (e.target.value) setJobDescFile(null);
+                    }}
+                    placeholder="Paste job description here..."
+                    rows={8}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                  />
+                </div>
+
+                {/* Upload Resumes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Upload Candidate Resumes (PDF/DOCX)
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      multiple
+                      onChange={handleResumeFilesChange}
+                      className="hidden"
+                      id="resume-files-input"
+                    />
+                    <label
+                      htmlFor="resume-files-input"
+                      className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-purple-300 rounded-lg cursor-pointer hover:border-purple-500 transition-colors bg-purple-50/50"
+                    >
+                      <FileText className="w-5 h-5 text-purple-600" />
+                      <span className="text-sm text-gray-700">
+                        {resumeFiles.length > 0
+                          ? `${resumeFiles.length} resume(s) selected`
+                          : 'Choose resume files'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {resumeFiles.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {resumeFiles.map((file, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg"
+                        >
+                          <span className="text-sm text-gray-700 truncate">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeResume(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Top K */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Top K Candidates
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={topK}
+                    onChange={(e) => setTopK(parseInt(e.target.value) || 5)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+
+                {/* Submit */}
+                <button
+                  onClick={handleSubmit}
+                  disabled={isLoading}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 px-6 rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Analyzing...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <TrendingUp className="w-5 h-5" />
+                      Find Best Matches
+                    </span>
+                  )}
+                </button>
+
+                {error && (
+                  <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-red-600 text-sm">{error}</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        )}
+
+          {/* RIGHT PANEL */}
+          <div className="bg-white rounded-2xl shadow-lg p-8 border border-indigo-100">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Top Candidates</h2>
+
+            {!results && !isLoading && (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                <Award className="w-16 h-16 mb-4 opacity-50" />
+                <p className="text-center">Results will appear here after analysis</p>
+              </div>
+            )}
+
+            {isLoading && (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+                <p className="text-gray-600">Analyzing candidates...</p>
+              </div>
+            )}
+
+            {results && (
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                {results.top_candidates.map((candidate: Candidate, index: number) => (
+                  <div
+                    key={index}
+                    className="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow bg-gradient-to-br from-white to-gray-50"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                          #{index + 1}
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-lg text-gray-800">
+                            {candidate.candidate_name}
+                          </h3>
+                          <p className="text-sm text-gray-500">{candidate.filename}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-indigo-600">
+                          {candidate.match_score}
+                        </div>
+                        <div className="text-xs text-gray-500">/ 10</div>
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-gray-700 mb-4 leading-relaxed">
+                      {candidate.justification}
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="font-medium text-sm text-green-700 mb-2">Strengths</h4>
+                        <ul className="space-y-1">
+                          {candidate.strengths.slice(0, 3).map((strength: string, i: number) => (
+                            <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
+                              <span className="text-green-500 mt-0.5">✓</span>
+                              <span>{strength}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-sm text-orange-700 mb-2">Gaps</h4>
+                        <ul className="space-y-1">
+                          {candidate.gaps.slice(0, 3).map((gap: string, i: number) => (
+                            <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
+                              <span className="text-orange-500 mt-0.5">⚠</span>
+                              <span>{gap}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
-};
-
-export default UploadAndMatch;
+}

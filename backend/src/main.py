@@ -24,6 +24,3 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/", tags=["Health Check"])
 def read_root():
     return {"status": "ok", "app_name": settings.APP_NAME, "environment": settings.ENV}
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

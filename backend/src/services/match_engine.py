@@ -1,9 +1,8 @@
 from typing import List, Dict, Any
-from pydantic import BaseModel, Field
 import numpy as np
-import asyncio
 import json
 import re
+import ollama
 from loguru import logger
 import google.generativeai as genai
 from src.config import settings
@@ -15,15 +14,13 @@ class MatchEngine:
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.embedding_model_name = settings.GEMINI_EMBEDDING_MODEL
-        self.generation_model = genai.GenerativeModel(settings.GEMINI_GENERATION_MODEL)
+        self.model_name = settings.OLLAMA_MODEL
         self.bias_mitigator = BiasMitigator()
         self.dimension = settings.EMBEDDING_DIMENSION
         self.job_cache: Dict[str, List[float]] = {}
 
     async def _embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """
-        Generate embeddings for a list of texts using Gemini Embedding API.
-        """
+        """Generate embeddings for a list of texts using Gemini Embedding API."""
         try:
             result = await genai.embed_content_async(
                 model=self.embedding_model_name,
@@ -35,87 +32,76 @@ class MatchEngine:
             logger.error(f"Embedding generation failed: {e}")
             return [[0.0] * self.dimension for _ in texts]
 
-    async def score_candidate_against_job(
-        self, resume: ResumeExtract, job: JobDescription
+    async def score_resume_against_job_text(
+        self, resume: ResumeExtract, job_description_text: str
     ) -> MatchOutput:
+        """Score a resume vs job description using local LLM via Ollama."""
 
-        # Prepare text representations
-        resume_summary = f"Skills: {', '.join(resume.skills)}. Summary: {resume.raw_text}"
-        jd_text = f"Job Title: {job.title}. Description: {job.description}"
+        resume_summary = f"Skills: {', '.join(resume.skills)}. " \
+                         f"Experience: {', '.join(resume.experience[:2])}. " \
+                         f"Education: {', '.join(resume.education[:2])}"
 
-        # Cache job embeddings
-        if job.title not in self.job_cache:
-            jd_emb = (await self._embed_texts([jd_text]))[0]
-            self.job_cache[job.title] = jd_emb
-        else:
-            jd_emb = self.job_cache[job.title]
-
+        # Compute simple cosine similarity
+        job_emb = (await self._embed_texts([job_description_text]))[0]
         resume_emb = (await self._embed_texts([resume_summary]))[0]
-
-        # Cosine similarity
-        similarity = np.dot(resume_emb, jd_emb) / (
-            np.linalg.norm(resume_emb) * np.linalg.norm(jd_emb)
+        similarity = np.dot(job_emb, resume_emb) / (
+            np.linalg.norm(job_emb) * np.linalg.norm(resume_emb)
         )
         base_score = float(np.clip((similarity + 1) * 5, 0, 10))
 
-        # Prompt LLM for structured evaluation
-        prompt = self._build_reasoning_prompt(resume, job, base_score)
+        # Build the LLM prompt
+        prompt = f"""
+You are an expert recruiter. Compare this resume to the job description.
+
+CANDIDATE:
+Name: {resume.candidate_name}
+Skills: {', '.join(resume.skills)}
+Experience: {' | '.join(resume.experience[:3])}
+Education: {' | '.join(resume.education)}
+
+JOB DESCRIPTION:
+{job_description_text}
+
+Provide JSON only:
+{{
+  "match_score": <1-10>,
+  "strengths": ["strength1", "strength2", "strength3"],
+  "gaps": ["gap1", "gap2"],
+  "justification": "<2-3 sentences>"
+}}
+        """.strip()
+
+        # Call local Ollama model
         try:
-            response = await self.generation_model.generate_content_async(prompt)
-            match = re.search(r"\{.*\}", response.text, re.DOTALL)
+            response = ollama.chat(model=self.model_name, messages=[
+                {"role": "system", "content": "You are a professional recruiter assistant."},
+                {"role": "user", "content": prompt}
+            ])
+            text = response['message']['content']
+            match = re.search(r"\{.*\}", text, re.DOTALL)
             parsed = json.loads(match.group(0)) if match else {}
         except Exception as e:
-            logger.warning(f"Failed to parse LLM JSON: {e}")
+            logger.warning(f"Ollama LLM parsing failed: {e}")
             parsed = {}
 
-        # Extract and refine results
-        strengths = parsed.get("strengths", resume.skills)
-        gaps = parsed.get("gaps", list(set(job.required_skills) - set(resume.skills)))
-        justification = parsed.get("justification", f"Heuristic score: {base_score:.2f}")
+        # Extract fields safely
+        strengths = parsed.get("strengths", resume.skills[:3])
+        gaps = parsed.get("gaps", ["More relevant experience needed"])
+        justification = parsed.get(
+            "justification",
+            f"Candidate shows {base_score:.1f}/10 alignment with the role."
+        )
         llm_score = parsed.get("match_score", base_score)
 
-        # Bias mitigation
+        job = JobDescription(title="Position", description=job_description_text, required_skills=[])
         mitigated = self.bias_mitigator.apply_checks(llm_score, resume, job)
         final_score = mitigated.get("score", llm_score)
 
         return MatchOutput(
             candidate_name=resume.candidate_name or "Unknown",
             match_score=round(final_score, 2),
-            strengths=strengths,
-            gaps=gaps,
+            strengths=strengths[:5],
+            gaps=gaps[:5],
             justification=justification,
-            details={"similarity": similarity, "base_score": base_score},
+            details={"similarity": float(similarity), "base_score": base_score}
         )
-
-    def _build_reasoning_prompt(
-        self, resume: ResumeExtract, job: JobDescription, base_score: float
-    ) -> str:
-        """
-        Build a structured LLM prompt for analyzing candidate-job fit.
-        """
-
-        return f"""
-            You are an expert technical recruiter. Analyze the candidate’s resume
-            against the given job description and provide a JSON response as follows:
-
-            JSON Output:
-            {{
-            "candidate_name": "{resume.candidate_name or "Unknown"}",
-            "match_score": <number from 1-10>,
-            "strengths": ["..."],
-            "gaps": ["..."],
-            "justification": "<1 short professional paragraph>"
-            }}
-
-            Base Similarity Score (vector-based): {base_score:.2f}/10
-
-            ---
-            CANDIDATE RESUME:
-            {resume.raw_text}
-            ---
-            JOB DESCRIPTION:
-            Title: {job.title}
-            {job.description}
-            ---
-            Only return the JSON object. No explanations or markdown.
-                    """.strip()
