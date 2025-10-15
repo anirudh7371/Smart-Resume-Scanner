@@ -1,23 +1,31 @@
 from typing import List, Dict, Any
 import numpy as np
-import json
-import re
-import ollama
 from loguru import logger
 import google.generativeai as genai
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 from src.config import settings
 from src.models.schemas import ResumeExtract, JobDescription, MatchOutput
-from src.services.bias_mitigator import BiasMitigator
 
 
 class MatchEngine:
     def __init__(self):
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.embedding_model_name = settings.GEMINI_EMBEDDING_MODEL
-        self.model_name = settings.OLLAMA_MODEL
-        self.bias_mitigator = BiasMitigator()
         self.dimension = settings.EMBEDDING_DIMENSION
         self.job_cache: Dict[str, List[float]] = {}
+        self.llm = ChatOllama(
+            model=settings.OLLAMA_MODEL,
+            temperature=0.3,
+            base_url="http://localhost:11434"
+        )
+        self.prompt_template = ChatPromptTemplate.from_messages([
+            ("system", "You are an expert recruiter. Analyze resumes and provide structured JSON output only."),
+            ("user", "{input}")
+        ])
+        self.parser = JsonOutputParser()
+        self.chain = self.prompt_template | self.llm | self.parser
 
     async def _embed_texts(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts using Gemini Embedding API."""
@@ -41,7 +49,6 @@ class MatchEngine:
                          f"Experience: {', '.join(resume.experience[:2])}. " \
                          f"Education: {', '.join(resume.education[:2])}"
 
-        # Compute simple cosine similarity
         job_emb = (await self._embed_texts([job_description_text]))[0]
         resume_emb = (await self._embed_texts([resume_summary]))[0]
         similarity = np.dot(job_emb, resume_emb) / (
@@ -49,9 +56,8 @@ class MatchEngine:
         )
         base_score = float(np.clip((similarity + 1) * 5, 0, 10))
 
-        # Build the LLM prompt
-        prompt = f"""
-You are an expert recruiter. Compare this resume to the job description.
+        prompt_content = f"""
+Compare this resume to the job description and provide analysis.
 
 CANDIDATE:
 Name: {resume.candidate_name}
@@ -62,40 +68,30 @@ Education: {' | '.join(resume.education)}
 JOB DESCRIPTION:
 {job_description_text}
 
-Provide JSON only:
+Respond with valid JSON only (no markdown, no extra text):
 {{
-  "match_score": <1-10>,
+  "match_score": <number between 1-10>,
   "strengths": ["strength1", "strength2", "strength3"],
   "gaps": ["gap1", "gap2"],
-  "justification": "<2-3 sentences>"
+  "justification": "<2-3 sentences explaining the match>"
 }}
         """.strip()
 
-        # Call local Ollama model
         try:
-            response = ollama.chat(model=self.model_name, messages=[
-                {"role": "system", "content": "You are a professional recruiter assistant."},
-                {"role": "user", "content": prompt}
-            ])
-            text = response['message']['content']
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-            parsed = json.loads(match.group(0)) if match else {}
+            parsed = await self.chain.ainvoke({"input": prompt_content})
+            logger.info(f"LLM Response: {parsed}")
         except Exception as e:
             logger.warning(f"Ollama LLM parsing failed: {e}")
             parsed = {}
 
-        # Extract fields safely
         strengths = parsed.get("strengths", resume.skills[:3])
         gaps = parsed.get("gaps", ["More relevant experience needed"])
         justification = parsed.get(
             "justification",
             f"Candidate shows {base_score:.1f}/10 alignment with the role."
         )
-        llm_score = parsed.get("match_score", base_score)
-
-        job = JobDescription(title="Position", description=job_description_text, required_skills=[])
-        mitigated = self.bias_mitigator.apply_checks(llm_score, resume, job)
-        final_score = mitigated.get("score", llm_score)
+        llm_score = float(parsed.get("match_score", base_score))
+        final_score = np.clip(llm_score, 0.0, 10.0)
 
         return MatchOutput(
             candidate_name=resume.candidate_name or "Unknown",
@@ -105,3 +101,9 @@ Provide JSON only:
             justification=justification,
             details={"similarity": float(similarity), "base_score": base_score}
         )
+
+    async def score_candidate_against_job(
+        self, resume: ResumeExtract, job: JobDescription
+    ) -> MatchOutput:
+        """Score candidate against structured job description."""
+        return await self.score_resume_against_job_text(resume, job.description)

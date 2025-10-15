@@ -19,6 +19,7 @@ config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config)
 
 GEMINI_EMBEDDING_MODEL = getattr(config, "GEMINI_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+
 class ResumeParser:
     def __init__(
         self,
@@ -232,4 +233,3 @@ class ResumeParser:
         except Exception as e:
             logger.warning(f"Failed to load {default_type} ontology from {source}: {e}")
             return default_skills if default_type == "skills" else default_certs
-

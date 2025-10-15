@@ -1,6 +1,6 @@
 "use client";
 import { useState, ChangeEvent } from 'react';
-import { Upload, FileText, Briefcase, Award, TrendingUp, X } from 'lucide-react';
+import { Upload, FileText, Briefcase, Award, TrendingUp, X, Download } from 'lucide-react';
 
 interface Candidate {
   candidate_name: string;
@@ -13,6 +13,7 @@ interface Candidate {
 
 interface MatchResults {
   top_candidates: Candidate[];
+  resume_texts: Record<string, string>;
 }
 
 export default function ResumeMatcherUI() {
@@ -22,6 +23,7 @@ export default function ResumeMatcherUI() {
   const [topK, setTopK] = useState<number>(5);
   const [results, setResults] = useState<MatchResults | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
   const handleJobDescFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -83,6 +85,43 @@ export default function ResumeMatcherUI() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const downloadPDFReport = async () => {
+    if (!results) return;
+
+    setIsGeneratingPDF(true);
+    try {
+      const formData = new FormData();
+      formData.append('job_description_text', jobDescText || 'Job Description from uploaded file');
+      formData.append('candidates_json', JSON.stringify(results.top_candidates));
+      formData.append('resume_texts_json', JSON.stringify(results.resume_texts || {}));
+
+      const response = await fetch('http://localhost:8000/api/v1/generate-report', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Failed to generate PDF report');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'candidate_analysis_report.pdf';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Failed to generate PDF report');
+      }
+    } finally {
+      setIsGeneratingPDF(false);
     }
   };
 
@@ -157,7 +196,7 @@ export default function ResumeMatcherUI() {
                     }}
                     placeholder="Paste job description here..."
                     rows={8}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none text-gray-900 placeholder-gray-400"
                   />
                 </div>
 
@@ -221,7 +260,7 @@ export default function ResumeMatcherUI() {
                     max={20}
                     value={topK}
                     onChange={(e) => setTopK(parseInt(e.target.value) || 5)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900"
                   />
                 </div>
 
@@ -255,7 +294,28 @@ export default function ResumeMatcherUI() {
 
           {/* RIGHT PANEL */}
           <div className="bg-white rounded-2xl shadow-lg p-8 border border-indigo-100">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Top Candidates</h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-gray-800">Top Candidates</h2>
+              {results && (
+                <button
+                  onClick={downloadPDFReport}
+                  disabled={isGeneratingPDF}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                >
+                  {isGeneratingPDF ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      Download Report
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
 
             {!results && !isLoading && (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400">

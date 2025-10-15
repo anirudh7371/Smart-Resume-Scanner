@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@geist-ui/react": "^2.2.5",
     "@types/axios": "^0.9.36",
     "axios": "^1.12.2",
     "lucide-react": "^0.545.0",
