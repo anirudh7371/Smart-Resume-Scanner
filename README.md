@@ -2,8 +2,9 @@
 
 ![Architecture Diagram](ArchitectureDaigram.png)
 
-**WATCH THE DEMO VIDEO BELOW**
-![Demo Video](https://drive.google.com/file/d/19N-l3rl-unHR8QWkc746148cyq72xiqz/view?usp=share_link)
+**WATCH THE DEMO VIDEO BELOW:**  
+[Click here to watch the demo video](https://drive.google.com/file/d/19N-l3rl-unHR8QWkc746148cyq72xiqz/view?usp=share_link)
+
 
 ---
 
