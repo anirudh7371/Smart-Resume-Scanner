@@ -1,9 +1,9 @@
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.lib.colors import HexColor, black, white
+from reportlab.lib.colors import HexColor, black
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER
 from datetime import datetime
 import re
 from typing import List, Dict, Any
@@ -16,7 +16,6 @@ class PDFReportGenerator:
         self._setup_custom_styles()
 
     def _setup_custom_styles(self):
-        """Setup custom paragraph styles"""
         self.styles.add(ParagraphStyle(
             name='CustomTitle',
             parent=self.styles['Heading1'],
@@ -26,7 +25,7 @@ class PDFReportGenerator:
             alignment=TA_CENTER,
             fontName='Helvetica-Bold'
         ))
-        
+
         self.styles.add(ParagraphStyle(
             name='SectionHeader',
             parent=self.styles['Heading2'],
@@ -36,7 +35,7 @@ class PDFReportGenerator:
             spaceBefore=12,
             fontName='Helvetica-Bold'
         ))
-        
+
         self.styles.add(ParagraphStyle(
             name='CandidateName',
             parent=self.styles['Heading3'],
@@ -46,72 +45,103 @@ class PDFReportGenerator:
             fontName='Helvetica-Bold'
         ))
 
+    # ✅ Smarter link extractor (handles partial URLs and text-only mentions)
     def _extract_links(self, text: str) -> Dict[str, str]:
-        """Extract GitHub, LinkedIn, Portfolio links from text"""
         links = {}
-        
-        # GitHub
-        github_pattern = r'(?:https?://)?(?:www\.)?github\.com/[\w-]+'
-        github_match = re.search(github_pattern, text, re.IGNORECASE)
-        if github_match:
-            links['GitHub'] = github_match.group(0)
-            if not links['GitHub'].startswith('http'):
-                links['GitHub'] = 'https://' + links['GitHub']
-        
-        # LinkedIn
-        linkedin_pattern = r'(?:https?://)?(?:www\.)?linkedin\.com/in/[\w-]+'
-        linkedin_match = re.search(linkedin_pattern, text, re.IGNORECASE)
-        if linkedin_match:
-            links['LinkedIn'] = linkedin_match.group(0)
-            if not links['LinkedIn'].startswith('http'):
-                links['LinkedIn'] = 'https://' + links['LinkedIn']
-        
-        # Portfolio (common patterns)
-        portfolio_patterns = [
-            r'(?:https?://)?(?:www\.)?[\w-]+\.(?:com|net|io|dev|me)/[\w-]*',
-            r'(?:https?://)?(?:portfolio|website):\s*([\w\.-]+)',
-        ]
-        for pattern in portfolio_patterns:
-            portfolio_match = re.search(pattern, text, re.IGNORECASE)
-            if portfolio_match and 'github' not in portfolio_match.group(0).lower() and 'linkedin' not in portfolio_match.group(0).lower():
-                links['Portfolio'] = portfolio_match.group(0)
-                if not links['Portfolio'].startswith('http'):
-                    links['Portfolio'] = 'https://' + links['Portfolio']
-                break
-        
+
+        # GitHub detection (handles "github.com/username" or "GitHub: username")
+        github_match = re.search(r'(?:https?://)?(?:www\.)?github\.com/[^\s,]+', text, re.IGNORECASE)
+        if not github_match:
+            github_alt = re.search(r'github\s*[:\-]?\s*([\w\-/\.]+)', text, re.IGNORECASE)
+            if github_alt:
+                username = github_alt.group(1).replace(" ", "").strip('/')
+                gh_url = f"https://github.com/{username}" if "github.com" not in username else f"https://{username}"
+                links['GitHub'] = gh_url
+        else:
+            gh_url = github_match.group(0)
+            if not gh_url.startswith("http"):
+                gh_url = "https://" + gh_url
+            links['GitHub'] = gh_url
+
+        # LinkedIn detection (handles both direct URLs and partial)
+        linkedin_match = re.search(r'(?:https?://)?(?:www\.)?linkedin\.com/in/[^\s,]+', text, re.IGNORECASE)
+        if not linkedin_match:
+            linkedin_alt = re.search(r'linkedin\s*[:\-]?\s*([\w\-/\.]+)', text, re.IGNORECASE)
+            if linkedin_alt:
+                li = linkedin_alt.group(1).replace(" ", "").strip('/')
+                li_url = f"https://linkedin.com/in/{li}" if "linkedin.com" not in li else f"https://{li}"
+                links['LinkedIn'] = li_url
+        else:
+            li_url = linkedin_match.group(0)
+            if not li_url.startswith("http"):
+                li_url = "https://" + li_url
+            links['LinkedIn'] = li_url
+
+        # Portfolio / website detection (avoid false positives)
+        portfolio_pattern = r'(?:https?://)?(?:www\.)?(?!linkedin|github)[\w-]+\.(?:com|net|io|dev|me)(?:/[^\s]*)?'
+        portfolio_match = re.search(portfolio_pattern, text, re.IGNORECASE)
+        if portfolio_match:
+            link = portfolio_match.group(0)
+            if not link.startswith("http"):
+                link = "https://" + link
+            links['Portfolio'] = link
+
         return links
 
+    # 🔍 Detailed analysis (more accurate experience/project parsing)
+    def _generate_detailed_analysis(self, resume_text: str, job_description: str) -> Dict[str, str]:
+        """Extract deeper insights from résumé text and job description."""
+        analysis = {}
+
+        # Experience detection (handles "3+ years", "worked for 2 years", etc.)
+        exp_pattern = r'(\d+)\s*(?:\+?\s*)?(?:years?|yrs?).*(?:experience|work|industry)?'
+        exp_matches = re.findall(exp_pattern, resume_text, re.IGNORECASE)
+        total_exp = max(map(int, exp_matches)) if exp_matches else 0
+        analysis['Experience'] = f"{total_exp} years of experience detected." if total_exp else "Experience details not clearly stated."
+
+        # Project mentions
+        project_keywords = ['project', 'developed', 'built', 'implemented', 'designed', 'deployed', 'led', 'created']
+        project_lines = [line for line in resume_text.split('\n') if any(k in line.lower() for k in project_keywords)]
+        project_count = len(project_lines)
+        analysis['Projects'] = f"{project_count} project(s) mentioned." if project_count else "No clear project mentions found."
+
+        # Skill overlap (JD vs résumé)
+        jd_keywords = set(re.findall(r'\b[A-Za-z0-9\+\#\.]{2,}\b', job_description.lower()))
+        resume_keywords = set(re.findall(r'\b[A-Za-z0-9\+\#\.]{2,}\b', resume_text.lower()))
+        overlap = jd_keywords.intersection(resume_keywords)
+        overlap_ratio = (len(overlap) / len(jd_keywords)) * 100 if jd_keywords else 0
+        analysis['Skill Match'] = f"~{overlap_ratio:.1f}% overlap between resume and job description skills."
+
+        # Education info
+        education_keywords = ['btech', 'b.e', 'bachelor', 'mtech', 'm.sc', 'phd', 'degree', 'university', 'college']
+        edu_lines = [line for line in resume_text.split('\n') if any(k in line.lower() for k in education_keywords)]
+        analysis['Education'] = f"{len(edu_lines)} educational qualification(s) detected." if edu_lines else "Education info not found."
+
+        return analysis
+
     def generate_report(
-        self, 
+        self,
         job_description: str,
         candidates: List[Dict[str, Any]],
         resume_texts: Dict[str, str]
     ) -> BytesIO:
-        """
-        Generate a comprehensive PDF report
-        
-        Args:
-            job_description: The job description text
-            candidates: List of candidate analysis results
-            resume_texts: Dict mapping filename to full resume text
-        """
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+        doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5 * inch, bottomMargin=0.5 * inch)
         story = []
 
-        # Title Page
+        # Header
         story.append(Paragraph("Candidate Analysis Report", self.styles['CustomTitle']))
-        story.append(Spacer(1, 0.2*inch))
-        
+        story.append(Spacer(1, 0.2 * inch))
+
         report_date = datetime.now().strftime("%B %d, %Y")
         story.append(Paragraph(f"<b>Generated:</b> {report_date}", self.styles['Normal']))
-        story.append(Spacer(1, 0.3*inch))
+        story.append(Spacer(1, 0.3 * inch))
 
-        # Job Description Summary
+        # Job Description
         story.append(Paragraph("Job Description", self.styles['SectionHeader']))
         jd_text = job_description[:500] + "..." if len(job_description) > 500 else job_description
         story.append(Paragraph(jd_text.replace('\n', '<br/>'), self.styles['Normal']))
-        story.append(Spacer(1, 0.3*inch))
+        story.append(Spacer(1, 0.3 * inch))
 
         # Executive Summary
         story.append(Paragraph("Executive Summary", self.styles['SectionHeader']))
@@ -121,26 +151,26 @@ class PDFReportGenerator:
         story.append(Paragraph(summary_text, self.styles['Normal']))
         story.append(PageBreak())
 
-        # Individual Candidate Reports
+        # Per-Candidate Details
         for idx, candidate in enumerate(candidates, 1):
-            # Candidate Header
             story.append(Paragraph(f"Candidate #{idx}: {candidate['candidate_name']}", self.styles['SectionHeader']))
-            
-            # Score and filename
+
+            # Score with color coding
             score_color = '#16a34a' if candidate['match_score'] >= 7 else '#ea580c' if candidate['match_score'] >= 5 else '#dc2626'
             score_text = f"<font color='{score_color}'><b>Match Score: {candidate['match_score']}/10</b></font>"
             story.append(Paragraph(score_text, self.styles['Normal']))
             story.append(Paragraph(f"<i>File: {candidate['filename']}</i>", self.styles['Normal']))
-            story.append(Spacer(1, 0.15*inch))
+            story.append(Spacer(1, 0.15 * inch))
 
-            # Extract and display links
+            # Extract cleaned résumé text
             resume_text = resume_texts.get(candidate['filename'], '')
             links = self._extract_links(resume_text)
-            
+
+            # Professional Links
             if links:
                 story.append(Paragraph("<b>Professional Links:</b>", self.styles['CandidateName']))
                 link_data = [[platform, f'<link href="{url}">{url}</link>'] for platform, url in links.items()]
-                link_table = Table(link_data, colWidths=[1.5*inch, 5*inch])
+                link_table = Table(link_data, colWidths=[1.5 * inch, 5 * inch])
                 link_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (0, -1), HexColor('#f3f4f6')),
                     ('TEXTCOLOR', (0, 0), (-1, -1), black),
@@ -152,25 +182,40 @@ class PDFReportGenerator:
                     ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#d1d5db'))
                 ]))
                 story.append(link_table)
-                story.append(Spacer(1, 0.15*inch))
+                story.append(Spacer(1, 0.15 * inch))
 
-            # Justification
-            story.append(Paragraph("<b>Analysis:</b>", self.styles['CandidateName']))
+            # Summary
+            story.append(Paragraph("<b>Analysis Summary:</b>", self.styles['CandidateName']))
             story.append(Paragraph(candidate['justification'], self.styles['Normal']))
-            story.append(Spacer(1, 0.15*inch))
+            story.append(Spacer(1, 0.15 * inch))
 
             # Strengths
             story.append(Paragraph("<b>Key Strengths:</b>", self.styles['CandidateName']))
             for strength in candidate['strengths']:
                 story.append(Paragraph(f"• {strength}", self.styles['Normal']))
-            story.append(Spacer(1, 0.15*inch))
+            story.append(Spacer(1, 0.15 * inch))
 
             # Gaps
             story.append(Paragraph("<b>Areas for Development:</b>", self.styles['CandidateName']))
             for gap in candidate['gaps']:
                 story.append(Paragraph(f"• {gap}", self.styles['Normal']))
-            
-            # Add page break between candidates (except last)
+            story.append(Spacer(1, 0.2 * inch))
+
+            # Detailed Analysis
+            story.append(Paragraph("<b>Detailed Analysis:</b>", self.styles['CandidateName']))
+            detailed = self._generate_detailed_analysis(resume_text, job_description)
+            detail_table = [[k, v] for k, v in detailed.items()]
+            detail_table_obj = Table(detail_table, colWidths=[1.5 * inch, 5 * inch])
+            detail_table_obj.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), HexColor('#eef2ff')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#c7d2fe'))
+            ]))
+            story.append(detail_table_obj)
+
             if idx < len(candidates):
                 story.append(PageBreak())
 

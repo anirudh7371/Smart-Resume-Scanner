@@ -1,6 +1,5 @@
 from typing import List, Dict, Any
 import numpy as np
-from loguru import logger
 import google.generativeai as genai
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
@@ -28,22 +27,16 @@ class MatchEngine:
         self.chain = self.prompt_template | self.llm | self.parser
 
     async def _embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts using Gemini Embedding API."""
-        try:
-            result = await genai.embed_content_async(
-                model=self.embedding_model_name,
-                content=texts,
-                task_type="RETRIEVAL_DOCUMENT"
-            )
-            return result["embedding"]
-        except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
-            return [[0.0] * self.dimension for _ in texts]
+        result = await genai.embed_content_async(
+            model=self.embedding_model_name,
+            content=texts,
+            task_type="RETRIEVAL_DOCUMENT"
+        )
+        return result["embedding"]
 
     async def score_resume_against_job_text(
         self, resume: ResumeExtract, job_description_text: str
     ) -> MatchOutput:
-        """Score a resume vs job description using local LLM via Ollama."""
 
         resume_summary = f"Skills: {', '.join(resume.skills)}. " \
                          f"Experience: {', '.join(resume.experience[:2])}. " \
@@ -77,12 +70,7 @@ Respond with valid JSON only (no markdown, no extra text):
 }}
         """.strip()
 
-        try:
-            parsed = await self.chain.ainvoke({"input": prompt_content})
-            logger.info(f"LLM Response: {parsed}")
-        except Exception as e:
-            logger.warning(f"Ollama LLM parsing failed: {e}")
-            parsed = {}
+        parsed = await self.chain.ainvoke({"input": prompt_content})
 
         strengths = parsed.get("strengths", resume.skills[:3])
         gaps = parsed.get("gaps", ["More relevant experience needed"])
@@ -105,5 +93,4 @@ Respond with valid JSON only (no markdown, no extra text):
     async def score_candidate_against_job(
         self, resume: ResumeExtract, job: JobDescription
     ) -> MatchOutput:
-        """Score candidate against structured job description."""
         return await self.score_resume_against_job_text(resume, job.description)
